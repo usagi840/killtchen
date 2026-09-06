@@ -209,8 +209,11 @@ let usingCustomMap = false;
 
 let loader = null;
 let groundRaycaster = null;
+let wallRaycaster = null;
 const GRAVITY = 22;
-const JUMP_SPEED = 8.5;
+const JUMP_SPEED = 46.5; // ~30x the previous jump height (height scales with v^2)
+const PLAYER_VISUAL_SCALE = 0.2; // players rendered 5x smaller
+const COLLIDE_RADIUS = 0.6 * PLAYER_VISUAL_SCALE;
 const keys = { forward: false, back: false, left: false, right: false, jump: false };
 window.addEventListener("keydown", (e) => setKey(e.code, true));
 window.addEventListener("keyup", (e) => setKey(e.code, false));
@@ -265,6 +268,7 @@ async function buildPlayerMesh(kind) {
   const modelNameMap = { white: "white", red: "red", phantom: "phantom" };
   const colorMap = { white: 0xe9e7e2, red: 0xb3273f, phantom: 0x8f88a3 };
   const gltfScene = await loadModel(modelNameMap[kind]);
+  let obj;
   if (gltfScene) {
     const clone = gltfScene.clone(true);
     if (kind === "phantom") {
@@ -276,9 +280,12 @@ async function buildPlayerMesh(kind) {
         }
       });
     }
-    return clone;
+    obj = clone;
+  } else {
+    obj = fallbackCapsule(colorMap[kind], kind === "phantom" ? 0.45 : 1);
   }
-  return fallbackCapsule(colorMap[kind], kind === "phantom" ? 0.45 : 1);
+  obj.scale.setScalar(PLAYER_VISUAL_SCALE);
+  return obj;
 }
 
 async function buildMap() {
@@ -406,6 +413,7 @@ async function initGameWorld(spawnX, spawnZ) {
   scene.add(selfObj);
   selfMesh = { obj: selfObj, x: spawnX, z: spawnZ, y: 0, vy: 0, grounded: true, rotY: 0 };
   groundRaycaster = new THREE.Raycaster();
+  wallRaycaster = new THREE.Raycaster();
 
   window.addEventListener("resize", onResize);
   onResize();
@@ -428,6 +436,15 @@ function circleBoxCollision(x, z, radius) {
     if (dx * dx + dz * dz < radius * radius) return true;
   }
   return false;
+}
+
+function blockedByMapWalls(x, y, z, dirX, dirZ, dist) {
+  if (raycastTargets.length === 0) return false;
+  const len = Math.hypot(dirX, dirZ);
+  if (len < 1e-6) return false;
+  wallRaycaster.set(new THREE.Vector3(x, y + 0.5 * PLAYER_VISUAL_SCALE, z), new THREE.Vector3(dirX / len, 0, dirZ / len));
+  wallRaycaster.far = dist;
+  return wallRaycaster.intersectObjects(raycastTargets, false).length > 0;
 }
 
 let lastFrameTime = 0;
@@ -471,8 +488,11 @@ function updateSelf(dt) {
     const dir = (keys.forward ? 1 : 0) - (keys.back ? 1 : 0);
     if (dir !== 0) {
       const speed = currentSpeed();
-      const nx = selfMesh.x - Math.sin(selfMesh.rotY) * dir * speed * dt;
-      const nz = selfMesh.z - Math.cos(selfMesh.rotY) * dir * speed * dt;
+      const moveX = -Math.sin(selfMesh.rotY) * dir;
+      const moveZ = -Math.cos(selfMesh.rotY) * dir;
+      const stepDist = speed * dt;
+      const nx = selfMesh.x + moveX * stepDist;
+      const nz = selfMesh.z + moveZ * stepDist;
       const noclip = !iAmAlive;
       const bounded = Math.abs(nx) < ARENA_HALF - 0.5 && Math.abs(nz) < ARENA_HALF - 0.5;
       if (noclip) {
@@ -480,9 +500,13 @@ function updateSelf(dt) {
           selfMesh.x = nx;
           selfMesh.z = nz;
         }
-      } else if (bounded && !circleBoxCollision(nx, nz, 0.45)) {
-        selfMesh.x = nx;
-        selfMesh.z = nz;
+      } else {
+        const hitsWall = usingCustomMap && blockedByMapWalls(selfMesh.x, selfMesh.y, selfMesh.z, moveX, moveZ, stepDist + COLLIDE_RADIUS);
+        const hitsBox = !usingCustomMap && circleBoxCollision(nx, nz, 0.45);
+        if (bounded && !hitsWall && !hitsBox) {
+          selfMesh.x = nx;
+          selfMesh.z = nz;
+        }
       }
     }
 

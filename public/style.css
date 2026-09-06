@@ -1,0 +1,252 @@
+:root {
+  --void: #0d0d12;
+  --panel: #17171d;
+  --panel-line: #2a2a34;
+  --blood: #b3273f;
+  --blood-bright: #d33a54;
+  --ghost: #e9e7e2;
+  --violet: #4b4463;
+  --violet-bright: #7d72a6;
+  --gold: #c9a24b;
+  --text-dim: #9a97a6;
+  --font-display: "Big Shoulders Display", sans-serif;
+  --font-body: "IBM Plex Sans", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--void);
+  color: var(--ghost);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+
+.screen {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.screen.active { display: flex; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  border-radius: 6px;
+  padding: 40px 36px;
+  width: min(420px, 90vw);
+  box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 56px;
+  letter-spacing: 2px;
+  margin: 0 0 4px 0;
+  color: var(--ghost);
+  text-shadow: 0 0 24px rgba(179,39,63,0.35);
+}
+.title.small { font-size: 38px; }
+
+.subtitle {
+  color: var(--text-dim);
+  margin: 0 0 28px 0;
+  line-height: 1.5;
+  font-size: 15px;
+}
+
+.field {
+  display: block;
+  margin-bottom: 16px;
+}
+.field span {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.field input {
+  width: 100%;
+  background: var(--void);
+  border: 1px solid var(--panel-line);
+  color: var(--ghost);
+  padding: 11px 12px;
+  border-radius: 4px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  outline: none;
+}
+.field input:focus { border-color: var(--violet-bright); }
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+  margin-top: 8px;
+  padding-top: 24px;
+  border-top: 1px solid var(--panel-line);
+}
+.split-col { display: flex; flex-direction: column; }
+
+.btn {
+  border: none;
+  border-radius: 4px;
+  padding: 13px 18px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--blood);
+  color: var(--ghost);
+}
+.btn-primary:not(:disabled):hover { filter: brightness(1.12); }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--violet-bright);
+  color: var(--ghost);
+  margin-top: auto;
+}
+.btn-ghost:hover { background: rgba(125,114,166,0.12); }
+
+.error-text {
+  color: var(--blood-bright);
+  font-size: 13px;
+  margin: 16px 0 0 0;
+  min-height: 16px;
+}
+
+.eyebrow-plain {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0 0 6px 0;
+}
+
+.room-code {
+  font-family: var(--font-display);
+  font-size: 48px;
+  letter-spacing: 8px;
+  margin: 0 0 10px 0;
+  color: var(--gold);
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.player-list {
+  list-style: none;
+  margin: 20px 0;
+  padding: 0;
+  border-top: 1px solid var(--panel-line);
+}
+.player-list li {
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--panel-line);
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+}
+.player-list li .tag {
+  font-size: 12px;
+  color: var(--gold);
+}
+.player-list li .tag.role-killer { color: var(--blood-bright); }
+.player-list li .tag.role-white { color: var(--text-dim); }
+
+/* ===== GAME SCREEN ===== */
+#screen-game { padding: 0; }
+#game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.role-banner {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 1px;
+  background: rgba(13,13,18,0.75);
+  border: 1px solid var(--panel-line);
+}
+.role-banner.killer { color: var(--blood-bright); border-color: var(--blood); }
+.role-banner.white { color: var(--ghost); border-color: var(--violet-bright); }
+
+.hud-top-right {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+.phase-timer {
+  padding: 10px 16px;
+  border-radius: 4px;
+  background: rgba(13,13,18,0.75);
+  border: 1px solid var(--panel-line);
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: var(--gold);
+  min-width: 90px;
+  text-align: center;
+}
+
+.hide-overlay {
+  position: absolute;
+  bottom: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: var(--ghost);
+}
+.hide-overlay p { margin: 2px 0; font-size: 14px; color: var(--text-dim); }
+.hide-countdown {
+  font-family: var(--font-display);
+  font-size: 34px !important;
+  color: var(--gold) !important;
+}
+
+.ghost-banner {
+  position: absolute;
+  bottom: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 4px;
+  background: rgba(75,68,99,0.35);
+  border: 1px solid var(--violet-bright);
+  font-size: 14px;
+}
+
+.hidden { display: none !important; }
+
+.controls-hint {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  color: var(--text-dim);
+  font-size: 12px;
+  pointer-events: none;
+}

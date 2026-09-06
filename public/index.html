@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TRAQUE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ===== MENU ===== -->
+<section id="screen-menu" class="screen active">
+  <div class="panel">
+    <h1 class="title">TRAQUE</h1>
+    <p class="subtitle">Un killer se cache parmi vous. Survivez, ou chassez.</p>
+
+    <label class="field">
+      <span>Ton nom</span>
+      <input id="input-name" type="text" maxlength="16" placeholder="Ex. Marius" />
+    </label>
+
+    <div class="split">
+      <div class="split-col">
+        <button id="btn-create" class="btn btn-primary">Créer une partie</button>
+      </div>
+      <div class="split-col">
+        <label class="field">
+          <span>Code de la partie</span>
+          <input id="input-code" type="text" maxlength="5" placeholder="AB3F9" />
+        </label>
+        <button id="btn-join" class="btn btn-ghost">Rejoindre</button>
+      </div>
+    </div>
+
+    <p id="menu-error" class="error-text"></p>
+  </div>
+</section>
+
+<!-- ===== LOBBY ===== -->
+<section id="screen-lobby" class="screen">
+  <div class="panel">
+    <p class="eyebrow-plain">Code de la partie</p>
+    <h2 class="room-code" id="room-code-display">-----</h2>
+    <p class="hint">Partage ce code pour que d'autres rejoignent (3 à 8 joueurs).</p>
+
+    <ul id="player-list" class="player-list"></ul>
+
+    <button id="btn-start" class="btn btn-primary" disabled>En attente de joueurs…</button>
+    <p class="hint" id="lobby-hint"></p>
+  </div>
+</section>
+
+<!-- ===== GAME ===== -->
+<section id="screen-game" class="screen">
+  <canvas id="game-canvas"></canvas>
+
+  <div class="hud">
+    <div id="role-banner" class="role-banner"></div>
+    <div class="hud-top-right">
+      <div id="phase-timer" class="phase-timer"></div>
+    </div>
+    <div id="hide-overlay" class="hide-overlay hidden">
+      <p>Vous êtes caché pour l'instant.</p>
+      <p class="hide-countdown" id="hide-countdown">15</p>
+    </div>
+    <div id="ghost-banner" class="ghost-banner hidden">
+      <p>Vous êtes un fantôme — vous pouvez seulement observer.</p>
+    </div>
+  </div>
+
+  <div class="controls-hint">Z / S avancer-reculer &middot; Q / D tourner</div>
+</section>
+
+<!-- ===== END ===== -->
+<section id="screen-end" class="screen">
+  <div class="panel">
+    <h2 id="end-title" class="title small"></h2>
+    <p id="end-sub" class="subtitle"></p>
+    <ul id="end-roles" class="player-list"></ul>
+    <button id="btn-replay" class="btn btn-primary">Retour au menu</button>
+  </div>
+</section>
+
+<script src="/socket.io/socket.io.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="client.js"></script>
+</body>
+</html>

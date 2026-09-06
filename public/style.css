@@ -250,3 +250,53 @@ html, body {
   font-size: 12px;
   pointer-events: none;
 }
+
+/* ===== TOUCH CONTROLS ===== */
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.joystick-base {
+  position: absolute;
+  left: 28px;
+  bottom: 28px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(233,231,226,0.12);
+  border: 2px solid rgba(233,231,226,0.35);
+  pointer-events: auto;
+  touch-action: none;
+}
+.joystick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin-left: -26px;
+  margin-top: -26px;
+  border-radius: 50%;
+  background: rgba(233,231,226,0.55);
+  border: 2px solid var(--ghost);
+  pointer-events: none;
+}
+.jump-button {
+  position: absolute;
+  right: 28px;
+  bottom: 40px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: rgba(179,39,63,0.35);
+  border: 2px solid var(--blood-bright);
+  color: var(--ghost);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 1px;
+  pointer-events: auto;
+  touch-action: none;
+}
+.jump-button:active { background: rgba(179,39,63,0.6); }

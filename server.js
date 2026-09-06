@@ -14,7 +14,7 @@ const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 8;
 const HIDE_PHASE_MS = 30000; // killer inactive at start
 const GAME_DURATION_MS = 5 * 60 * 1000; // survive time for whites
-const TAG_RADIUS = 1.6;
+const TAG_RADIUS = 0.32;
 const TICK_MS = 100;
 
 // ----- State -----

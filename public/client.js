@@ -150,6 +150,7 @@ socket.on("game-start", ({ role, hideMs, gameMs, self }) => {
     banner.className = "role-banner white";
   }
   showScreen("game");
+  setupTouchControls();
   initGameWorld(self.x, self.z);
 });
 
@@ -210,8 +211,8 @@ let usingCustomMap = false;
 let loader = null;
 let groundRaycaster = null;
 let wallRaycaster = null;
+const JUMP_SPEED = 23.25; // reduced 4x in height from the previous jump (height scales with v^2)
 const GRAVITY = 22;
-const JUMP_SPEED = 46.5; // ~30x the previous jump height (height scales with v^2)
 const PLAYER_VISUAL_SCALE = 0.2; // players rendered 5x smaller
 const COLLIDE_RADIUS = 0.6 * PLAYER_VISUAL_SCALE;
 const keys = { forward: false, back: false, left: false, right: false, jump: false };
@@ -223,6 +224,81 @@ function setKey(code, val) {
   if (code === "KeyQ" || code === "KeyA" || code === "ArrowLeft") keys.left = val;
   if (code === "KeyD" || code === "ArrowRight") keys.right = val;
   if (code === "Space") keys.jump = val;
+}
+
+// ---- Touch controls (joystick + jump button) for phones/tablets ----
+const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+let touchControlsBound = false;
+function setupTouchControls() {
+  if (!isTouchDevice || touchControlsBound) return;
+  touchControlsBound = true;
+  const container = document.getElementById("touch-controls");
+  const base = document.getElementById("joystick-base");
+  const knob = document.getElementById("joystick-knob");
+  const jumpBtn = document.getElementById("btn-jump-touch");
+  container.classList.remove("hidden");
+  document.querySelector(".controls-hint")?.classList.add("hidden");
+
+  const maxRadius = 44;
+  let activeTouchId = null;
+  let baseRect = null;
+
+  function resetJoystick() {
+    keys.forward = keys.back = keys.left = keys.right = false;
+    knob.style.transform = "translate(0px, 0px)";
+  }
+
+  function handleMove(clientX, clientY) {
+    if (!baseRect) return;
+    const cx = baseRect.left + baseRect.width / 2;
+    const cy = baseRect.top + baseRect.height / 2;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.min(Math.hypot(dx, dy), maxRadius);
+    const angle = Math.atan2(dy, dx);
+    const kx = Math.cos(angle) * dist;
+    const ky = Math.sin(angle) * dist;
+    knob.style.transform = `translate(${kx}px, ${ky}px)`;
+
+    const deadzone = 12;
+    keys.forward = dy < -deadzone;
+    keys.back = dy > deadzone;
+    keys.left = dx < -deadzone;
+    keys.right = dx > deadzone;
+  }
+
+  base.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    activeTouchId = t.identifier;
+    baseRect = base.getBoundingClientRect();
+    handleMove(t.clientX, t.clientY);
+  });
+  base.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === activeTouchId) handleMove(t.clientX, t.clientY);
+    }
+  });
+  function endTouch(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === activeTouchId) {
+        activeTouchId = null;
+        resetJoystick();
+      }
+    }
+  }
+  base.addEventListener("touchend", endTouch);
+  base.addEventListener("touchcancel", endTouch);
+
+  jumpBtn.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    keys.jump = true;
+  });
+  jumpBtn.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    keys.jump = false;
+  });
 }
 
 function groundHeightAt(x, z) {
@@ -409,11 +485,13 @@ async function initGameWorld(spawnX, spawnZ) {
 
   const selfKind = myRole === "killer" ? "red" : "white";
   selfObj = await buildPlayerMesh(selfKind);
-  selfObj.position.set(spawnX, 0, spawnZ);
-  scene.add(selfObj);
-  selfMesh = { obj: selfObj, x: spawnX, z: spawnZ, y: 0, vy: 0, grounded: true, rotY: 0 };
   groundRaycaster = new THREE.Raycaster();
   wallRaycaster = new THREE.Raycaster();
+  const spawnGroundY = groundHeightAt(spawnX, spawnZ);
+  const spawnY = spawnGroundY + 2; // start a bit above the surface, gravity settles it down
+  selfObj.position.set(spawnX, spawnY, spawnZ);
+  scene.add(selfObj);
+  selfMesh = { obj: selfObj, x: spawnX, z: spawnZ, y: spawnY, vy: 0, grounded: false, rotY: 0 };
 
   window.addEventListener("resize", onResize);
   onResize();
@@ -442,7 +520,7 @@ function blockedByMapWalls(x, y, z, dirX, dirZ, dist) {
   if (raycastTargets.length === 0) return false;
   const len = Math.hypot(dirX, dirZ);
   if (len < 1e-6) return false;
-  wallRaycaster.set(new THREE.Vector3(x, y + 0.5 * PLAYER_VISUAL_SCALE, z), new THREE.Vector3(dirX / len, 0, dirZ / len));
+  wallRaycaster.set(new THREE.Vector3(x, y + 1.0, z), new THREE.Vector3(dirX / len, 0, dirZ / len));
   wallRaycaster.far = dist;
   return wallRaycaster.intersectObjects(raycastTargets, false).length > 0;
 }
@@ -502,7 +580,7 @@ function updateSelf(dt) {
         }
       } else {
         const hitsWall = usingCustomMap && blockedByMapWalls(selfMesh.x, selfMesh.y, selfMesh.z, moveX, moveZ, stepDist + COLLIDE_RADIUS);
-        const hitsBox = !usingCustomMap && circleBoxCollision(nx, nz, 0.45);
+        const hitsBox = !usingCustomMap && circleBoxCollision(nx, nz, 0.45 * PLAYER_VISUAL_SCALE);
         if (bounded && !hitsWall && !hitsBox) {
           selfMesh.x = nx;
           selfMesh.z = nz;

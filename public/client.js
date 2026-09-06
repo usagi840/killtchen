@@ -216,6 +216,7 @@ const GRAVITY = 22;
 const PLAYER_VISUAL_SCALE = 0.2; // players rendered 5x smaller
 const COLLIDE_RADIUS = 0.6 * PLAYER_VISUAL_SCALE;
 const keys = { forward: false, back: false, left: false, right: false, jump: false };
+const touchMove = { strafe: 0, forward: 0 }; // analog input from the joystick, movement only
 window.addEventListener("keydown", (e) => setKey(e.code, true));
 window.addEventListener("keyup", (e) => setKey(e.code, false));
 function setKey(code, val) {
@@ -226,7 +227,7 @@ function setKey(code, val) {
   if (code === "Space") keys.jump = val;
 }
 
-// ---- Touch controls (joystick + jump button) for phones/tablets ----
+// ---- Touch controls (joystick + jump button + look-drag) for phones/tablets ----
 const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
 let touchControlsBound = false;
 function setupTouchControls() {
@@ -240,15 +241,16 @@ function setupTouchControls() {
   document.querySelector(".controls-hint")?.classList.add("hidden");
 
   const maxRadius = 44;
-  let activeTouchId = null;
+  let joyTouchId = null;
   let baseRect = null;
 
   function resetJoystick() {
-    keys.forward = keys.back = keys.left = keys.right = false;
+    touchMove.forward = 0;
+    touchMove.strafe = 0;
     knob.style.transform = "translate(0px, 0px)";
   }
 
-  function handleMove(clientX, clientY) {
+  function handleJoystickMove(clientX, clientY) {
     if (!baseRect) return;
     const cx = baseRect.left + baseRect.width / 2;
     const cy = baseRect.top + baseRect.height / 2;
@@ -260,45 +262,76 @@ function setupTouchControls() {
     const ky = Math.sin(angle) * dist;
     knob.style.transform = `translate(${kx}px, ${ky}px)`;
 
-    const deadzone = 12;
-    keys.forward = dy < -deadzone;
-    keys.back = dy > deadzone;
-    keys.left = dx < -deadzone;
-    keys.right = dx > deadzone;
+    // Movement only — this never touches the camera/facing direction.
+    touchMove.forward = -ky / maxRadius; // up on the stick = forward
+    touchMove.strafe = kx / maxRadius;
   }
 
   base.addEventListener("touchstart", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     const t = e.changedTouches[0];
-    activeTouchId = t.identifier;
+    joyTouchId = t.identifier;
     baseRect = base.getBoundingClientRect();
-    handleMove(t.clientX, t.clientY);
+    handleJoystickMove(t.clientX, t.clientY);
   });
   base.addEventListener("touchmove", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     for (const t of e.changedTouches) {
-      if (t.identifier === activeTouchId) handleMove(t.clientX, t.clientY);
+      if (t.identifier === joyTouchId) handleJoystickMove(t.clientX, t.clientY);
     }
   });
-  function endTouch(e) {
+  function endJoyTouch(e) {
+    e.stopPropagation();
     for (const t of e.changedTouches) {
-      if (t.identifier === activeTouchId) {
-        activeTouchId = null;
+      if (t.identifier === joyTouchId) {
+        joyTouchId = null;
         resetJoystick();
       }
     }
   }
-  base.addEventListener("touchend", endTouch);
-  base.addEventListener("touchcancel", endTouch);
+  base.addEventListener("touchend", endJoyTouch);
+  base.addEventListener("touchcancel", endJoyTouch);
 
   jumpBtn.addEventListener("touchstart", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     keys.jump = true;
   });
   jumpBtn.addEventListener("touchend", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     keys.jump = false;
   });
+
+  // Drag anywhere else on screen (outside the joystick/jump button, which
+  // stopPropagation() above so they never reach here) to look around.
+  const LOOK_SENSITIVITY = 0.006;
+  let lookTouchId = null;
+  let lastLookX = 0;
+  container.addEventListener("touchstart", (e) => {
+    if (lookTouchId !== null) return;
+    const t = e.changedTouches[0];
+    lookTouchId = t.identifier;
+    lastLookX = t.clientX;
+  });
+  container.addEventListener("touchmove", (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookTouchId && selfMesh) {
+        const dx = t.clientX - lastLookX;
+        lastLookX = t.clientX;
+        selfMesh.rotY -= dx * LOOK_SENSITIVITY;
+      }
+    }
+  });
+  function endLookTouch(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookTouchId) lookTouchId = null;
+    }
+  }
+  container.addEventListener("touchend", endLookTouch);
+  container.addEventListener("touchcancel", endLookTouch);
 }
 
 function groundHeightAt(x, z) {
@@ -563,11 +596,16 @@ function updateSelf(dt) {
   if (keys.right) selfMesh.rotY -= rotSpeed * dt;
 
   if (iCanMove()) {
-    const dir = (keys.forward ? 1 : 0) - (keys.back ? 1 : 0);
-    if (dir !== 0) {
+    const forwardIn = Math.max(-1, Math.min(1, (keys.forward ? 1 : 0) - (keys.back ? 1 : 0) + touchMove.forward));
+    const strafeIn = Math.max(-1, Math.min(1, touchMove.strafe));
+    if (forwardIn !== 0 || strafeIn !== 0) {
       const speed = currentSpeed();
-      const moveX = -Math.sin(selfMesh.rotY) * dir;
-      const moveZ = -Math.cos(selfMesh.rotY) * dir;
+      const forwardX = -Math.sin(selfMesh.rotY), forwardZ = -Math.cos(selfMesh.rotY);
+      const rightX = Math.cos(selfMesh.rotY), rightZ = -Math.sin(selfMesh.rotY);
+      let moveX = forwardX * forwardIn + rightX * strafeIn;
+      let moveZ = forwardZ * forwardIn + rightZ * strafeIn;
+      const mag = Math.hypot(moveX, moveZ);
+      if (mag > 1) { moveX /= mag; moveZ /= mag; }
       const stepDist = speed * dt;
       const nx = selfMesh.x + moveX * stepDist;
       const nz = selfMesh.z + moveZ * stepDist;
@@ -675,12 +713,31 @@ function updateRemotes(dt) {
   });
 }
 
+let camRaycaster = null;
 function updateCamera() {
   if (!selfObj) return;
   const dist = 6.5, height = 3.4;
-  const camX = selfMesh.x + Math.sin(selfMesh.rotY) * dist;
-  const camZ = selfMesh.z + Math.cos(selfMesh.rotY) * dist;
-  camera.position.lerp(new THREE.Vector3(camX, selfMesh.y + height, camZ), 0.15);
+  let actualDist = dist;
+
+  if (raycastTargets.length > 0) {
+    if (!camRaycaster) camRaycaster = new THREE.Raycaster();
+    const origin = new THREE.Vector3(selfMesh.x, selfMesh.y + height, selfMesh.z);
+    const dirVec = new THREE.Vector3(Math.sin(selfMesh.rotY), 0, Math.cos(selfMesh.rotY));
+    camRaycaster.set(origin, dirVec);
+    camRaycaster.far = dist;
+    const hits = camRaycaster.intersectObjects(raycastTargets, false);
+    if (hits.length && hits[0].distance < dist) {
+      actualDist = Math.max(1.2, hits[0].distance - 0.35);
+    }
+  }
+
+  const camX = selfMesh.x + Math.sin(selfMesh.rotY) * actualDist;
+  const camZ = selfMesh.z + Math.cos(selfMesh.rotY) * actualDist;
+  const targetCamPos = new THREE.Vector3(camX, selfMesh.y + height, camZ);
+  // Snap in fast when pulling closer (avoid clipping through the wall for a frame),
+  // ease out slowly when moving back to the normal distance.
+  const lerpFactor = actualDist < dist ? 0.6 : 0.15;
+  camera.position.lerp(targetCamPos, lerpFactor);
   const lookAt = new THREE.Vector3(selfMesh.x, selfMesh.y + 1.2, selfMesh.z);
   camera.lookAt(lookAt);
 }

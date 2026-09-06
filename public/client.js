@@ -288,8 +288,19 @@ async function buildMap() {
     gltfScene.scale.setScalar(MAP_MODEL_SCALE);
     gltfScene.updateMatrixWorld(true);
 
-    // Size the play boundary and gravity raycast targets from the scaled model.
-    const box = new THREE.Box3().setFromObject(gltfScene);
+    // Recenter the model on X/Z and rest it on the ground (y=0), since the
+    // model's own pivot/origin may not line up with where players spawn.
+    let box = new THREE.Box3().setFromObject(gltfScene);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    gltfScene.position.x -= center.x;
+    gltfScene.position.z -= center.z;
+    gltfScene.position.y -= box.min.y;
+    gltfScene.updateMatrixWorld(true);
+
+    // Recompute the box after moving it, then size the play boundary and
+    // gravity raycast targets from it.
+    box = new THREE.Box3().setFromObject(gltfScene);
     const size = new THREE.Vector3();
     box.getSize(size);
     ARENA_HALF = Math.max(size.x, size.z) / 2 || ARENA_HALF_DEFAULT;

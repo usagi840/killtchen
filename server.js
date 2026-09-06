@@ -151,7 +151,7 @@ io.on("connection", (socket) => {
     }
 
     const killerId = ids[Math.floor(Math.random() * ids.length)];
-    const spawnRadius = 60;
+    const spawnRadius = 5; // kept small so players spawn near the map's center regardless of its real size
     ids.forEach((id, i) => {
       const angle = (i / ids.length) * Math.PI * 2;
       const p = room.players[id];

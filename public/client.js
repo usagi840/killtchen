@@ -334,12 +334,24 @@ function setupTouchControls() {
   container.addEventListener("touchcancel", endLookTouch);
 }
 
-function groundHeightAt(x, z) {
+function findInitialGroundY(x, z) {
+  // One-off search from high up, used only to place the player at spawn.
   if (!groundRaycaster || raycastTargets.length === 0) return 0;
   groundRaycaster.set(new THREE.Vector3(x, 500, z), new THREE.Vector3(0, -1, 0));
   groundRaycaster.far = 1000;
   const hits = groundRaycaster.intersectObjects(raycastTargets, false);
   return hits.length ? hits[0].point.y : 0;
+}
+
+function groundHeightAt(x, currentY, z) {
+  // Per-frame ground check: only looks a short distance around the player's
+  // current height, so it can't accidentally snap onto unrelated geometry
+  // far above (which looked like teleporting).
+  if (!groundRaycaster || raycastTargets.length === 0) return currentY;
+  groundRaycaster.set(new THREE.Vector3(x, currentY + 3, z), new THREE.Vector3(0, -1, 0));
+  groundRaycaster.far = 8;
+  const hits = groundRaycaster.intersectObjects(raycastTargets, false);
+  return hits.length ? hits[0].point.y : currentY;
 }
 
 function loadModel(name) {
@@ -520,7 +532,7 @@ async function initGameWorld(spawnX, spawnZ) {
   selfObj = await buildPlayerMesh(selfKind);
   groundRaycaster = new THREE.Raycaster();
   wallRaycaster = new THREE.Raycaster();
-  const spawnGroundY = groundHeightAt(spawnX, spawnZ);
+  const spawnGroundY = findInitialGroundY(spawnX, spawnZ);
   const spawnY = spawnGroundY + 2; // start a bit above the surface, gravity settles it down
   selfObj.position.set(spawnX, spawnY, spawnZ);
   scene.add(selfObj);
@@ -553,9 +565,18 @@ function blockedByMapWalls(x, y, z, dirX, dirZ, dist) {
   if (raycastTargets.length === 0) return false;
   const len = Math.hypot(dirX, dirZ);
   if (len < 1e-6) return false;
-  wallRaycaster.set(new THREE.Vector3(x, y + 1.0, z), new THREE.Vector3(dirX / len, 0, dirZ / len));
+  // Ray at roughly knee height so it reliably catches real walls without
+  // grazing a sloped floor right next to the player.
+  wallRaycaster.set(new THREE.Vector3(x, y + 0.6, z), new THREE.Vector3(dirX / len, 0, dirZ / len));
   wallRaycaster.far = dist;
-  return wallRaycaster.intersectObjects(raycastTargets, false).length > 0;
+  const hits = wallRaycaster.intersectObjects(raycastTargets, false);
+  // Only count roughly-vertical surfaces as walls; ignore floors, ramps,
+  // and other near-horizontal geometry (that was causing invisible blocks).
+  return hits.some((h) => {
+    if (!h.face) return true; // no normal info — be safe and treat as solid
+    const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+    return Math.abs(n.y) < 0.5;
+  });
 }
 
 let lastFrameTime = 0;
@@ -607,28 +628,38 @@ function updateSelf(dt) {
       const mag = Math.hypot(moveX, moveZ);
       if (mag > 1) { moveX /= mag; moveZ /= mag; }
       const stepDist = speed * dt;
-      const nx = selfMesh.x + moveX * stepDist;
-      const nz = selfMesh.z + moveZ * stepDist;
       const noclip = !iAmAlive;
-      const bounded = Math.abs(nx) < ARENA_HALF - 0.5 && Math.abs(nz) < ARENA_HALF - 0.5;
+
       if (noclip) {
+        const nx = selfMesh.x + moveX * stepDist;
+        const nz = selfMesh.z + moveZ * stepDist;
         if (Math.abs(nx) < ARENA_HALF + 6 && Math.abs(nz) < ARENA_HALF + 6) {
           selfMesh.x = nx;
           selfMesh.z = nz;
         }
       } else {
-        const hitsWall = usingCustomMap && blockedByMapWalls(selfMesh.x, selfMesh.y, selfMesh.z, moveX, moveZ, stepDist + COLLIDE_RADIUS);
-        const hitsBox = !usingCustomMap && circleBoxCollision(nx, nz, 0.45 * PLAYER_VISUAL_SCALE);
-        if (bounded && !hitsWall && !hitsBox) {
-          selfMesh.x = nx;
-          selfMesh.z = nz;
+        // Resolve X and Z separately so the player slides along a wall
+        // instead of getting fully stuck (which looked like random freezes).
+        const tryX = selfMesh.x + moveX * stepDist;
+        if (Math.abs(tryX) < ARENA_HALF - 0.5) {
+          const blockedX = usingCustomMap
+            ? blockedByMapWalls(selfMesh.x, selfMesh.y, selfMesh.z, Math.sign(moveX) || 0, 0, Math.abs(moveX) * stepDist + COLLIDE_RADIUS)
+            : circleBoxCollision(tryX, selfMesh.z, 0.45 * PLAYER_VISUAL_SCALE);
+          if (!blockedX) selfMesh.x = tryX;
+        }
+        const tryZ = selfMesh.z + moveZ * stepDist;
+        if (Math.abs(tryZ) < ARENA_HALF - 0.5) {
+          const blockedZ = usingCustomMap
+            ? blockedByMapWalls(selfMesh.x, selfMesh.y, selfMesh.z, 0, Math.sign(moveZ) || 0, Math.abs(moveZ) * stepDist + COLLIDE_RADIUS)
+            : circleBoxCollision(selfMesh.x, tryZ, 0.45 * PLAYER_VISUAL_SCALE);
+          if (!blockedZ) selfMesh.z = tryZ;
         }
       }
     }
 
     // Gravity + jump (phantoms float freely, no gravity for them)
     if (iAmAlive) {
-      const groundY = groundHeightAt(selfMesh.x, selfMesh.z);
+      const groundY = groundHeightAt(selfMesh.x, selfMesh.y, selfMesh.z);
       if (keys.jump && selfMesh.grounded) {
         selfMesh.vy = JUMP_SPEED;
         selfMesh.grounded = false;

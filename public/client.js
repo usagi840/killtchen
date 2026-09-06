@@ -364,17 +364,17 @@ async function initGameWorld(spawnX, spawnZ) {
   renderer.toneMappingExposure = 1.4;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x08080c);
+  scene.background = new THREE.Color(0xaed4f0);
 
   camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 3000);
 
-  const hemi = new THREE.HemisphereLight(0x555577, 0x15151c, 1.3);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x8a9aa8, 1.1);
   scene.add(hemi);
-  const dir = new THREE.DirectionalLight(0xffffff, 1.6);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.8);
   dir.position.set(30, 60, 20);
   dir.castShadow = true;
   scene.add(dir);
-  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
   scene.add(ambient);
   const moon = new THREE.PointLight(0x8899ff, 0.5, 200);
   moon.position.set(0, 30, 0);
@@ -384,7 +384,7 @@ async function initGameWorld(spawnX, spawnZ) {
   scene.add(mapObj);
 
   // Fog and camera reach must match the real map size (only known after buildMap runs).
-  scene.fog = new THREE.Fog(0x08080c, ARENA_HALF * 0.7, ARENA_HALF * 2.6);
+  scene.fog = new THREE.Fog(0xaed4f0, ARENA_HALF * 0.7, ARENA_HALF * 2.6);
   camera.far = Math.max(600, ARENA_HALF * 4);
   camera.updateProjectionMatrix();
   dir.position.set(ARENA_HALF * 0.4, ARENA_HALF * 0.8, ARENA_HALF * 0.3);

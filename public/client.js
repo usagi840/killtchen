@@ -1,5 +1,16 @@
-import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+// Three.js is loaded lazily (see loadEngine below) so a CDN hiccup can never
+// block the menu/lobby buttons, which only need plain DOM + socket.io.
+let THREE = null;
+let GLTFLoader = null;
+async function loadEngine() {
+  if (THREE) return;
+  const [threeMod, loaderMod] = await Promise.all([
+    import("https://unpkg.com/three@0.160.0/build/three.module.js"),
+    import("https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js"),
+  ]);
+  THREE = threeMod;
+  GLTFLoader = loaderMod.GLTFLoader;
+}
 
 // ---------------------------------------------------------------------------
 // Screen management
@@ -158,10 +169,10 @@ let selfMesh, selfObj;
 const remotePlayers = {}; // id -> { mesh, targetX, targetZ, targetRotY, taggedFlag }
 let obstacles = []; // {minX,maxX,minZ,maxZ}
 const ARENA_HALF = 26;
-const loader = new GLTFLoader();
 const modelCache = {};
 let usingCustomMap = false;
 
+let loader = null;
 const keys = { forward: false, back: false, left: false, right: false };
 window.addEventListener("keydown", (e) => setKey(e.code, true));
 window.addEventListener("keyup", (e) => setKey(e.code, false));
@@ -277,6 +288,9 @@ let worldInitialized = false;
 async function initGameWorld(spawnX, spawnZ) {
   if (worldInitialized) return;
   worldInitialized = true;
+
+  await loadEngine();
+  loader = new GLTFLoader();
 
   const canvas = document.getElementById("game-canvas");
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });

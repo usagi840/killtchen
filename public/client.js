@@ -200,13 +200,18 @@ let renderer, scene, camera;
 let selfMesh, selfObj;
 const remotePlayers = {}; // id -> { mesh, targetX, targetZ, targetRotY, taggedFlag }
 let obstacles = []; // {minX,maxX,minZ,maxZ}
-const ARENA_HALF = 260;
-const MAP_SCALE = 10;
+let raycastTargets = []; // meshes used to find ground height under the player (gravity)
+const ARENA_HALF_DEFAULT = 26;
+let ARENA_HALF = ARENA_HALF_DEFAULT;
+const MAP_MODEL_SCALE = 10; // scale applied to the user-provided map.glb
 const modelCache = {};
 let usingCustomMap = false;
 
 let loader = null;
-const keys = { forward: false, back: false, left: false, right: false };
+let groundRaycaster = null;
+const GRAVITY = 22;
+const JUMP_SPEED = 8.5;
+const keys = { forward: false, back: false, left: false, right: false, jump: false };
 window.addEventListener("keydown", (e) => setKey(e.code, true));
 window.addEventListener("keyup", (e) => setKey(e.code, false));
 function setKey(code, val) {
@@ -214,6 +219,15 @@ function setKey(code, val) {
   if (code === "KeyS" || code === "ArrowDown") keys.back = val;
   if (code === "KeyQ" || code === "KeyA" || code === "ArrowLeft") keys.left = val;
   if (code === "KeyD" || code === "ArrowRight") keys.right = val;
+  if (code === "Space") keys.jump = val;
+}
+
+function groundHeightAt(x, z) {
+  if (!groundRaycaster || raycastTargets.length === 0) return 0;
+  groundRaycaster.set(new THREE.Vector3(x, 500, z), new THREE.Vector3(0, -1, 0));
+  groundRaycaster.far = 1000;
+  const hits = groundRaycaster.intersectObjects(raycastTargets, false);
+  return hits.length ? hits[0].point.y : 0;
 }
 
 function loadModel(name) {
@@ -271,9 +285,22 @@ async function buildMap() {
   const gltfScene = await loadModel("map");
   if (gltfScene) {
     usingCustomMap = true;
+    gltfScene.scale.setScalar(MAP_MODEL_SCALE);
+    gltfScene.updateMatrixWorld(true);
+
+    // Size the play boundary and gravity raycast targets from the scaled model.
+    const box = new THREE.Box3().setFromObject(gltfScene);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    ARENA_HALF = Math.max(size.x, size.z) / 2 || ARENA_HALF_DEFAULT;
+
+    gltfScene.traverse((o) => {
+      if (o.isMesh) raycastTargets.push(o);
+    });
     return gltfScene;
   }
   usingCustomMap = false;
+  ARENA_HALF = ARENA_HALF_DEFAULT;
   const group = new THREE.Group();
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(ARENA_HALF * 2, ARENA_HALF * 2),
@@ -282,13 +309,14 @@ async function buildMap() {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   group.add(ground);
+  raycastTargets.push(ground);
 
   const boxMat = new THREE.MeshStandardMaterial({ color: 0x232330, roughness: 0.9 });
   const layout = [
     [-14, -10, 4, 4], [10, -14, 5, 3], [-6, 6, 6, 3], [14, 8, 3, 6],
     [0, 0, 3, 3], [-18, 12, 4, 4], [18, -4, 3, 5], [4, -18, 5, 3],
     [-10, -18, 3, 3], [-4, 18, 6, 3],
-  ].map(([x, z, w, d]) => [x * MAP_SCALE, z * MAP_SCALE, w * MAP_SCALE, d * MAP_SCALE]);
+  ];
   layout.forEach(([x, z, w, d]) => {
     const h = 2.2;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), boxMat);
@@ -297,29 +325,8 @@ async function buildMap() {
     mesh.receiveShadow = true;
     group.add(mesh);
     obstacles.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+    raycastTargets.push(mesh);
   });
-
-  // Extra procedurally-placed cover so the larger arena doesn't feel empty.
-  // Deterministic seed => identical layout on every client without needing sync.
-  let seed = 1337;
-  const rand = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    return seed / 4294967296;
-  };
-  for (let i = 0; i < 45; i++) {
-    const x = (rand() * 2 - 1) * (ARENA_HALF - 20);
-    const z = (rand() * 2 - 1) * (ARENA_HALF - 20);
-    if (Math.hypot(x, z) < 15) continue; // keep spawn area clearer
-    const w = 3 + rand() * 6;
-    const d = 3 + rand() * 6;
-    const h = 2 + rand() * 2;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), boxMat);
-    mesh.position.set(x, h / 2, z);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-    obstacles.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
-  }
 
   // boundary walls
   const wallH = 3;
@@ -355,7 +362,7 @@ async function initGameWorld(spawnX, spawnZ) {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x08080c);
-  scene.fog = new THREE.Fog(0x08080c, 60, 220);
+  scene.fog = new THREE.Fog(0x08080c, 18, 46);
 
   camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 200);
 
@@ -376,7 +383,8 @@ async function initGameWorld(spawnX, spawnZ) {
   selfObj = await buildPlayerMesh(selfKind);
   selfObj.position.set(spawnX, 0, spawnZ);
   scene.add(selfObj);
-  selfMesh = { obj: selfObj, x: spawnX, z: spawnZ, rotY: 0 };
+  selfMesh = { obj: selfObj, x: spawnX, z: spawnZ, y: 0, vy: 0, grounded: true, rotY: 0 };
+  groundRaycaster = new THREE.Raycaster();
 
   window.addEventListener("resize", onResize);
   onResize();
@@ -403,7 +411,7 @@ function circleBoxCollision(x, z, radius) {
 
 let lastFrameTime = 0;
 let lastNetSend = 0;
-const BASE_SPEED = 4.2 * 5; // scaled up to match the larger arena
+const BASE_SPEED = 4.2;
 const KILLER_MULT = 1.3;
 const PHANTOM_MULT = 1.6;
 
@@ -456,21 +464,39 @@ function updateSelf(dt) {
         selfMesh.z = nz;
       }
     }
+
+    // Gravity + jump (phantoms float freely, no gravity for them)
+    if (iAmAlive) {
+      const groundY = groundHeightAt(selfMesh.x, selfMesh.z);
+      if (keys.jump && selfMesh.grounded) {
+        selfMesh.vy = JUMP_SPEED;
+        selfMesh.grounded = false;
+      }
+      selfMesh.vy -= GRAVITY * dt;
+      selfMesh.y += selfMesh.vy * dt;
+      if (selfMesh.y <= groundY) {
+        selfMesh.y = groundY;
+        selfMesh.vy = 0;
+        selfMesh.grounded = true;
+      }
+    } else {
+      selfMesh.y = 0;
+    }
   }
 
-  selfObj.position.set(selfMesh.x, 0, selfMesh.z);
+  selfObj.position.set(selfMesh.x, selfMesh.y, selfMesh.z);
   selfObj.rotation.y = selfMesh.rotY;
 
   const now = performance.now();
   if (now - lastNetSend > 90) {
     lastNetSend = now;
-    socket.emit("move", { x: selfMesh.x, z: selfMesh.z, rotY: selfMesh.rotY });
+    socket.emit("move", { x: selfMesh.x, y: selfMesh.y, z: selfMesh.z, rotY: selfMesh.rotY });
   }
 }
 
 async function ensureRemote(id, initialKind) {
   if (remotePlayers[id] || id === selfId) return;
-  const placeholder = { obj: null, x: 0, z: 0, rotY: 0, kind: null };
+  const placeholder = { obj: null, x: 0, y: 0, z: 0, rotY: 0, kind: null };
   remotePlayers[id] = placeholder;
   const obj = await buildPlayerMesh(initialKind);
   if (remotePlayers[id] === placeholder) {
@@ -508,11 +534,12 @@ function updateRemotes(dt) {
     const rp = remotePlayers[p.id];
     if (!rp) return;
     rp.x = p.x;
+    rp.y = p.y || 0;
     rp.z = p.z;
     rp.rotY = p.rotY;
     if (rp.kind !== wantKind) setRemoteKind(p.id, wantKind);
     if (rp.obj) {
-      rp.obj.position.lerp(new THREE.Vector3(p.x, 0, p.z), Math.min(1, dt * 10));
+      rp.obj.position.lerp(new THREE.Vector3(p.x, rp.y, p.z), Math.min(1, dt * 10));
       rp.obj.rotation.y = p.rotY;
     }
   });
@@ -530,8 +557,8 @@ function updateCamera() {
   const dist = 6.5, height = 3.4;
   const camX = selfMesh.x + Math.sin(selfMesh.rotY) * dist;
   const camZ = selfMesh.z + Math.cos(selfMesh.rotY) * dist;
-  camera.position.lerp(new THREE.Vector3(camX, height, camZ), 0.15);
-  const lookAt = new THREE.Vector3(selfMesh.x, 1.2, selfMesh.z);
+  camera.position.lerp(new THREE.Vector3(camX, selfMesh.y + height, camZ), 0.15);
+  const lookAt = new THREE.Vector3(selfMesh.x, selfMesh.y + 1.2, selfMesh.z);
   camera.lookAt(lookAt);
 }
 

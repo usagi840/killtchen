@@ -46,6 +46,7 @@ function sanitizedState(room) {
       id: p.id,
       name: p.name,
       x: p.x,
+      y: p.y,
       z: p.z,
       rotY: p.rotY,
       alive: p.alive,
@@ -119,7 +120,7 @@ io.on("connection", (socket) => {
       endsAt: null,
       tickHandle: null,
     };
-    room.players[socket.id] = { id: socket.id, name: (name || "Joueur").slice(0, 16), x: 0, z: 0, rotY: 0, role: null, alive: true };
+    room.players[socket.id] = { id: socket.id, name: (name || "Joueur").slice(0, 16), x: 0, y: 0, z: 0, rotY: 0, role: null, alive: true };
     rooms[roomId] = room;
     socket.join(roomId);
     socket.data.roomId = roomId;
@@ -134,7 +135,7 @@ io.on("connection", (socket) => {
     if (room.status !== "lobby") return socket.emit("error-msg", "La partie a déjà commencé.");
     if (Object.keys(room.players).length >= MAX_PLAYERS) return socket.emit("error-msg", "Partie complète (8 max).");
 
-    room.players[socket.id] = { id: socket.id, name: (name || "Joueur").slice(0, 16), x: 0, z: 0, rotY: 0, role: null, alive: true };
+    room.players[socket.id] = { id: socket.id, name: (name || "Joueur").slice(0, 16), x: 0, y: 0, z: 0, rotY: 0, role: null, alive: true };
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.emit("room-joined", { roomId, selfId: socket.id });
@@ -157,6 +158,7 @@ io.on("connection", (socket) => {
       p.role = id === killerId ? "killer" : "white";
       p.alive = true;
       p.x = Math.cos(angle) * spawnRadius;
+      p.y = 0;
       p.z = Math.sin(angle) * spawnRadius;
       p.rotY = 0;
     });
@@ -179,7 +181,7 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on("move", ({ x, z, rotY }) => {
+  socket.on("move", ({ x, y, z, rotY }) => {
     const room = rooms[socket.data.roomId];
     if (!room) return;
     const p = room.players[socket.id];
@@ -189,6 +191,7 @@ io.on("connection", (socket) => {
     if (room.status === "hiding" && p.role === "killer") return;
     // tagged players (phantoms) can still move freely to spectate, they just have no gameplay effect
     p.x = x;
+    p.y = y || 0;
     p.z = z;
     p.rotY = rotY;
   });

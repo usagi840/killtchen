@@ -359,25 +359,35 @@ async function initGameWorld(spawnX, spawnZ) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.4;
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x08080c);
-  scene.fog = new THREE.Fog(0x08080c, 18, 46);
 
-  camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 200);
+  camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 3000);
 
-  const hemi = new THREE.HemisphereLight(0x3a3a55, 0x0a0a0c, 0.8);
+  const hemi = new THREE.HemisphereLight(0x555577, 0x15151c, 1.3);
   scene.add(hemi);
-  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-  dir.position.set(10, 18, 6);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.6);
+  dir.position.set(30, 60, 20);
   dir.castShadow = true;
   scene.add(dir);
-  const moon = new THREE.PointLight(0x8899ff, 0.4, 60);
-  moon.position.set(0, 12, 0);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambient);
+  const moon = new THREE.PointLight(0x8899ff, 0.5, 200);
+  moon.position.set(0, 30, 0);
   scene.add(moon);
 
   const mapObj = await buildMap();
   scene.add(mapObj);
+
+  // Fog and camera reach must match the real map size (only known after buildMap runs).
+  scene.fog = new THREE.Fog(0x08080c, ARENA_HALF * 0.7, ARENA_HALF * 2.6);
+  camera.far = Math.max(600, ARENA_HALF * 4);
+  camera.updateProjectionMatrix();
+  dir.position.set(ARENA_HALF * 0.4, ARENA_HALF * 0.8, ARENA_HALF * 0.3);
 
   const selfKind = myRole === "killer" ? "red" : "white";
   selfObj = await buildPlayerMesh(selfKind);

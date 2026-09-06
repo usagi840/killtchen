@@ -12,7 +12,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // ----- Config -----
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 8;
-const HIDE_PHASE_MS = 15000; // killer inactive at start
+const HIDE_PHASE_MS = 30000; // killer inactive at start
 const GAME_DURATION_MS = 5 * 60 * 1000; // survive time for whites
 const TAG_RADIUS = 1.6;
 const TICK_MS = 100;
@@ -39,7 +39,7 @@ function publicPlayerList(room) {
 }
 
 function sanitizedState(room) {
-  // Positions + alive/phantom status + timing info. Role is NOT included here (sent privately).
+  // Roles are included: everyone can see who the killer is.
   return {
     status: room.status,
     players: Object.values(room.players).map((p) => ({
@@ -49,6 +49,7 @@ function sanitizedState(room) {
       z: p.z,
       rotY: p.rotY,
       alive: p.alive,
+      role: p.role,
     })),
     hideEndsAt: room.killerActiveAt || null,
     gameEndsAt: room.endsAt || null,
@@ -149,7 +150,7 @@ io.on("connection", (socket) => {
     }
 
     const killerId = ids[Math.floor(Math.random() * ids.length)];
-    const spawnRadius = 8;
+    const spawnRadius = 60;
     ids.forEach((id, i) => {
       const angle = (i / ids.length) * Math.PI * 2;
       const p = room.players[id];

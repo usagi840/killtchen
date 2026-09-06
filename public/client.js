@@ -40,22 +40,55 @@ const nameInput = document.getElementById("input-name");
 const codeInput = document.getElementById("input-code");
 const menuError = document.getElementById("menu-error");
 
+codeInput.addEventListener("input", () => {
+  codeInput.value = codeInput.value.toUpperCase().replace(/\s/g, "");
+});
+
+socket.on("connect_error", () => {
+  menuError.textContent = "Impossible de se connecter au serveur. Vérifie ta connexion et réessaie.";
+});
+socket.on("disconnect", () => {
+  menuError.textContent = "Connexion au serveur perdue.";
+});
+
 document.getElementById("btn-create").addEventListener("click", () => {
-  menuError.textContent = "";
+  if (!nameInput.value.trim()) return (menuError.textContent = "Entre un nom d'abord.");
+  menuError.textContent = "Connexion…";
   socket.emit("create-room", { name: nameInput.value.trim() });
+  waitForResponse();
 });
 document.getElementById("btn-join").addEventListener("click", () => {
-  menuError.textContent = "";
+  if (!nameInput.value.trim()) return (menuError.textContent = "Entre un nom d'abord.");
+  if (!codeInput.value.trim()) return (menuError.textContent = "Entre le code de la partie.");
+  menuError.textContent = "Connexion…";
   socket.emit("join-room", { roomId: codeInput.value.trim(), name: nameInput.value.trim() });
+  waitForResponse();
 });
 document.getElementById("btn-start").addEventListener("click", () => {
   socket.emit("start-game");
 });
 document.getElementById("btn-replay").addEventListener("click", () => window.location.reload());
 
-socket.on("error-msg", (msg) => (menuError.textContent = msg));
+let responseTimeout = null;
+function waitForResponse() {
+  clearTimeout(responseTimeout);
+  responseTimeout = setTimeout(() => {
+    if (screens.menu.classList.contains("active")) {
+      menuError.textContent = "Le serveur ne répond pas. Vérifie le lien/l'état du serveur puis réessaie.";
+    }
+  }, 6000);
+}
+function clearResponseWait() {
+  clearTimeout(responseTimeout);
+}
+
+socket.on("error-msg", (msg) => {
+  clearResponseWait();
+  menuError.textContent = msg;
+});
 
 socket.on("room-joined", ({ roomId, selfId: id }) => {
+  clearResponseWait();
   currentRoomId = roomId;
   selfId = id;
   document.getElementById("room-code-display").textContent = roomId;
@@ -116,7 +149,6 @@ socket.on("game-start", ({ role, hideMs, gameMs, self }) => {
     banner.textContent = "Tu es WHITE — reste caché";
     banner.className = "role-banner white";
   }
-
   showScreen("game");
   initGameWorld(self.x, self.z);
 });
@@ -168,7 +200,8 @@ let renderer, scene, camera;
 let selfMesh, selfObj;
 const remotePlayers = {}; // id -> { mesh, targetX, targetZ, targetRotY, taggedFlag }
 let obstacles = []; // {minX,maxX,minZ,maxZ}
-const ARENA_HALF = 26;
+const ARENA_HALF = 260;
+const MAP_SCALE = 10;
 const modelCache = {};
 let usingCustomMap = false;
 
@@ -255,7 +288,7 @@ async function buildMap() {
     [-14, -10, 4, 4], [10, -14, 5, 3], [-6, 6, 6, 3], [14, 8, 3, 6],
     [0, 0, 3, 3], [-18, 12, 4, 4], [18, -4, 3, 5], [4, -18, 5, 3],
     [-10, -18, 3, 3], [-4, 18, 6, 3],
-  ];
+  ].map(([x, z, w, d]) => [x * MAP_SCALE, z * MAP_SCALE, w * MAP_SCALE, d * MAP_SCALE]);
   layout.forEach(([x, z, w, d]) => {
     const h = 2.2;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), boxMat);
@@ -265,6 +298,28 @@ async function buildMap() {
     group.add(mesh);
     obstacles.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
   });
+
+  // Extra procedurally-placed cover so the larger arena doesn't feel empty.
+  // Deterministic seed => identical layout on every client without needing sync.
+  let seed = 1337;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let i = 0; i < 45; i++) {
+    const x = (rand() * 2 - 1) * (ARENA_HALF - 20);
+    const z = (rand() * 2 - 1) * (ARENA_HALF - 20);
+    if (Math.hypot(x, z) < 15) continue; // keep spawn area clearer
+    const w = 3 + rand() * 6;
+    const d = 3 + rand() * 6;
+    const h = 2 + rand() * 2;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), boxMat);
+    mesh.position.set(x, h / 2, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    obstacles.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+  }
 
   // boundary walls
   const wallH = 3;
@@ -300,7 +355,7 @@ async function initGameWorld(spawnX, spawnZ) {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x08080c);
-  scene.fog = new THREE.Fog(0x08080c, 18, 46);
+  scene.fog = new THREE.Fog(0x08080c, 60, 220);
 
   camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 200);
 
@@ -348,7 +403,7 @@ function circleBoxCollision(x, z, radius) {
 
 let lastFrameTime = 0;
 let lastNetSend = 0;
-const BASE_SPEED = 4.2;
+const BASE_SPEED = 4.2 * 5; // scaled up to match the larger arena
 const KILLER_MULT = 1.3;
 const PHANTOM_MULT = 1.6;
 
@@ -413,14 +468,14 @@ function updateSelf(dt) {
   }
 }
 
-async function ensureRemote(id) {
+async function ensureRemote(id, initialKind) {
   if (remotePlayers[id] || id === selfId) return;
-  const placeholder = { obj: null, x: 0, z: 0, rotY: 0, taggedFlag: false, kind: null };
+  const placeholder = { obj: null, x: 0, z: 0, rotY: 0, kind: null };
   remotePlayers[id] = placeholder;
-  const obj = await buildPlayerMesh("white");
+  const obj = await buildPlayerMesh(initialKind);
   if (remotePlayers[id] === placeholder) {
     placeholder.obj = obj;
-    placeholder.kind = "white";
+    placeholder.kind = initialKind;
     scene.add(obj);
   }
 }
@@ -439,19 +494,22 @@ async function setRemoteKind(id, kind) {
   rp.obj = newObj;
 }
 
+let killerName = null;
+
 function updateRemotes(dt) {
   if (!latestState) return;
   const seen = new Set();
   latestState.players.forEach((p) => {
     if (p.id === selfId) return;
     seen.add(p.id);
-    ensureRemote(p.id);
+    const wantKind = !p.alive ? "phantom" : p.role === "killer" ? "red" : "white";
+    if (p.role === "killer") killerName = p.name;
+    ensureRemote(p.id, wantKind);
     const rp = remotePlayers[p.id];
     if (!rp) return;
     rp.x = p.x;
     rp.z = p.z;
     rp.rotY = p.rotY;
-    const wantKind = p.alive ? "white" : "phantom";
     if (rp.kind !== wantKind) setRemoteKind(p.id, wantKind);
     if (rp.obj) {
       rp.obj.position.lerp(new THREE.Vector3(p.x, 0, p.z), Math.min(1, dt * 10));
@@ -488,6 +546,11 @@ function updateHud() {
   const now = Date.now();
   const hideOverlay = document.getElementById("hide-overlay");
   const timerEl = document.getElementById("phase-timer");
+  const banner = document.getElementById("role-banner");
+
+  if (myRole === "white" && killerName) {
+    banner.textContent = `Tu es WHITE — le killer, c'est ${killerName}`;
+  }
 
   if (myRole === "killer" && now < hideEndsAtClient) {
     hideOverlay.classList.remove("hidden");
